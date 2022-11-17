@@ -1,0 +1,134 @@
+```{r}
+
+library(rvest)
+library(JumpeR)
+library(tidyverse)
+
+```
+
+```{r}
+
+dl_points_link <- "https://static.sportresult.com/sports/at/data/2022/diamond_race/QualificationStanding.pdf"
+
+```
+
+```{r}
+
+# JumpeR::read_results may be a bit overkill here, but it's a useful function that works well for any pdf with tables. Using it here saves a few lines of code and gets you in the habit of using JumpeR.
+
+# Second line: (a) Removes the \n that open every line and will ultimately complicate splitting; (b) Results give the number of points followed by the finishing place in parenthesis, which is not just annoying but redundant: place determines points, and points indicate place.  
+
+dl_points_raw <- JumpeR::read_results(dl_points_link) %>%
+  str_remove_all(., "^\n|\\(\\d\\.\\)") %>%    
+  lapply(., trimws) %>%
+  unlist(., recursive = FALSE)
+
+# Split the "full document" single vector into single-event vectors / "proto-frames." Split on the lines that contain an event name. all_events and splitAt available in XYZ.Rmd.
+
+lines <- which(str_detect(dl_points_raw, all_events))
+points_partial <- splitAt(dl_points_raw, lines)
+
+# Everything above the first split will stay in the list, so remove that since it's just "header" material. Normally it'll show up under the results and will be dropped by the "finish" variable created below.
+
+working <- points_partial[-1]
+working
+```
+
+```{r}
+
+start <- which(str_detect(points_partial[[9]], "^1 ")) 
+
+# Finish is determined by the last line that starts with a 1 or 2 digit number followed by one or more capital letters, i.e., how Diamond League does names: all caps last name followed by title case first name
+
+finish <- max(which(str_detect(points_partial[[9]], "^[0-9]{1,2} [A-Z]{1,}")))
+
+points_partial[[9]][start-1] %>%
+    str_extract_all(., "\\d{1,2}\\s[A-Z]{3}") %>%
+    unlist() %>%
+    trimws()
+
+start
+```
+
+
+
+```{r}
+
+# create_frame takes in a "proto-frame" and creates a dataframe that contains only the results table for an event
+
+create_frame <- function(points_frame) { 
+
+# Locates and assigns the event and gender anywhere in the proto-frame
+  
+  event <- str_extract(toString(points_frame), all_events)
+  gender <- str_extract(toString(points_frame), "Men|Women")
+
+# Why we removed the leading \n and did trimws() before splitting in block above
+  start <- which(str_detect(points_frame, "^1 ")) 
+# Finish is determined by the last line that starts with a 1 or 2 digit number followed by one or more capital letters, i.e., how Diamond League does names: all caps last name followed by title case first name
+  finish <- max(which(str_detect(points_frame, "^[0-9]{1,2} [A-Z]{1,}")))
+  
+# Meet dates are given in DD MMM format, all ion a row. We'll need these as column headers
+  dates <- points_frame[start-1] %>%
+    str_extract_all(., "\\d{1,2}\\s[A-Z]{3}") %>%
+    unlist() %>%
+    trimws()
+  
+# Spacing between points is the big pain point in this file, so we approach the table in two parts: the athlete's info and the results themselves, then we'll bind those together. The Country column followed by the total points column is a rigorous boundary between the two sides: the athlete's side will always end with [A-Z]{3}, some number of spaces (doesn't matter how many) followed by 1-2 digits. 
+  athlete_side <-  points_frame[start:finish] %>%
+    str_split(., "(?<=[A-Z]{3}\\s{1,25}\\d{1,2})(?=\\s)") %>%
+    lapply(., '[[', 1) %>%
+    unlist(., recursive = FALSE) %>%
+    str_split(., "(?<=\\d\\s)|(?=\\s\\d)") %>%   # First step in creating columns out of the vectors: splits the strings before and after digits, giving us three columns: rank / place (digits), name & country (letters), and points (digits)
+    do.call(rbind, .) %>%
+    as.data.frame() %>%
+    mutate(across(.cols = everything(), .fns = trimws)) %>%
+    separate(col = V2, into = c("Name", "Country"), sep = "\\s(?=[A-Z]{3}$)") %>%  # Finishes what we started above: splits the name & country column into two columns for Name and Country
+    rename(c("Rank" = "V1", "Points" = "V3")) %>%
+    mutate(Event = event,
+           Gender = gender)
+
+# athlete_side took everything to the left of our demarcation line. results_side splits at the same place and takes everything to the right via '[[', 2 
+  results_side <- points_frame[start:finish] %>%
+    str_split(., "(?<=[A-Z]{3}\\s{1,25}\\d{1,2})(?=\\s)") %>%
+    lapply(., '[[', 2) %>%
+    unlist(., recursive = FALSE) %>%
+    str_replace_all(., "\\s{13}", " space ") %>%  # 13 spaces between meet columns determined through trial and error via those athletes who competed in consecutive meets. Using "space" just as a single-word placeholder that we can easily count on later
+    trimws() %>%
+    str_split(., "\\s{1,}")
+
+# How many meets are there in a given event. tbqh, there's a reason why length(dates) didn't work but I can't remember it now that I'm documenting it.
+  meet_count <- results_side %>%
+    map(., length) %>%
+    unlist() %>%
+    max()
+
+# Fills in the blanks for the meets that each athlete did not compete in with "space" up to the total number of meets determined above. That way every athlete has the same number of "results columns," so we can split on those soon.
+  result_frame <- results_side %>%
+    map(., function(x) {c(x, rep("space", length(dates) - length(x)))}) %>%
+    do.call(rbind, .) %>%
+    as.data.frame()
+  
+  colnames(result_frame) <- dates
+
+# You don't need to pivot_longer if you want to keep the table in wide / display form. But for our purposes and best practices, we wanted it in tidy format, hence the pivot_longer call. athlete_side will always have 6 columns, so we pivot starting at the 7th because we know that's where the results start. Whichever format you choose, convert the "space" placeholder to NA or NULL.
+  full_frame <- athlete_side %>%
+    bind_cols(result_frame) %>%
+    pivot_longer(cols = 7:ncol(.), names_to = "Meet_date", values_to = "Meet_points") %>%
+    mutate(Meet_points = na_if(Meet_points, "space"))
+
+  return(full_frame)
+
+}
+  
+```
+
+```{r}
+
+# Tidy dataframes of the final Diamond League point standings for all events (i.e., event-gender combos)
+
+map(working, create_frame) 
+
+
+```
+
