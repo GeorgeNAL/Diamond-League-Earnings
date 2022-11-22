@@ -3,8 +3,8 @@ library(gt)
 library(countrycode)
 
 
-dl_points <- readRDS("/home/georgemperry/Documents/Athletics_Data/diamond_league_points_results.rds")
-country_dict <- read_csv("/home/georgemperry/Documents/Athletics_Data/country_code_master.csv")
+dl_points <- readRDS("/diamond_league_points_results.rds")
+country_dict <- read_csv("/country_code_master.csv")
 
 dl_points <- dl_points %>%
   left_join(., country_dict, by = c("Country" = "Diamond_League_Country")) %>%
@@ -18,7 +18,6 @@ base_frame <- dl_points %>%
             across()) %>%
   select(Name, Event, Gender, Earnings, flag_emoji, Country) %>%
   unique() 
-
 
 
 base_table <- base_frame %>%
