@@ -1,23 +1,16 @@
-```{r}
-
 library(tidyverse)
 library(gt)
 library(countrycode)
 
-```
-
-```{r}
 
 dl_points <- readRDS("/home/georgemperry/Documents/Athletics_Data/diamond_league_points_results.rds")
 country_dict <- read_csv("/home/georgemperry/Documents/Athletics_Data/country_code_master.csv")
 
 dl_points <- dl_points %>%
- left_join(., country_dict, by = c("Country" = "Diamond_League_Country")) %>%
- mutate(flag_emoji  = countrycode(ISO2Code, 'iso2c', 'unicode.symbol')) %>%
- select(Rank, Name, Event, Country, Gender, Moneez, Discipline, flag_emoji)
-```
+  left_join(., country_dict, by = c("Country" = "Diamond_League_Country")) %>%
+  mutate(flag_emoji  = countrycode(ISO2Code, 'iso2c', 'unicode.symbol')) %>%
+  select(Rank, Name, Event, Country, Gender, Moneez, Discipline, flag_emoji)
 
-```{r}
 
 base_frame <- dl_points %>%
   group_by(Name, Event) %>%
@@ -27,9 +20,6 @@ base_frame <- dl_points %>%
   unique() 
 
 
-```
-
-```{r}
 
 base_table <- base_frame %>%
   group_by(Event, Gender) %>%
@@ -44,26 +34,23 @@ base_table <- base_frame %>%
          spacer = "") %>%
   relocate(country_top, .after = Gender) %>%
   gt() %>%
-    data_color(.,
-               columns = c(starts_with("Rank"), earnings_spread),
-               colors = scales::col_numeric(
-                 palette = c("#fcffa4", "#fac228", "#f57d15", "#d44842", "#9f2a63", "#65156e", "#280b53", "#000004"),
-                 domain = c(min(base_frame$Earnings), max(base_frame$Earnings))) 
-               ) %>%
-    cols_label(
-      country_top = "Top earning countries",
-      Rank_1 = "Highest earner",
-      Rank_2 = "2nd",
-      Rank_3 = "3rd",
-      Rank_4 = "4th",
-      Rank_5 = "5th",
-      earnings_spread = "Top 5 earnings spread",
-      spacer = ""
-    )
+  data_color(.,
+             columns = c(starts_with("Rank"), earnings_spread),
+             colors = scales::col_numeric(
+               palette = c("#fcffa4", "#fac228", "#f57d15", "#d44842", "#9f2a63", "#65156e", "#280b53", "#000004"),
+               domain = c(min(base_frame$Earnings), max(base_frame$Earnings))) 
+  ) %>%
+  cols_label(
+    country_top = "Top earning countries",
+    Rank_1 = "Highest earner",
+    Rank_2 = "2nd",
+    Rank_3 = "3rd",
+    Rank_4 = "4th",
+    Rank_5 = "5th",
+    earnings_spread = "Top 5 earnings spread",
+    spacer = ""
+  )
 
-```
-
-```{r}
 
 rank_to_html <- function(cell_info) {
   
@@ -76,21 +63,17 @@ rank_to_html <- function(cell_info) {
 
 
 athlete_info <-  base_frame %>%
-    select(-Country) %>%    # If anything goes wrong, blame this line
-    group_by(Event, Gender) %>%
-    mutate(Rank = rank(-Earnings, ties.method = "random"),
-           Earnings = scales::dollar(Earnings)) %>%
-    filter(Rank <= 5) %>%
-    nest(Name, flag_emoji, Earnings) %>%
-    pivot_wider(names_from = Rank, values_from = data, names_prefix = "Rank_") %>%
-    mutate(across(.cols = starts_with("Rank"), .fns = rank_to_html)) %>%
-    ungroup() %>%
-    gt()
+  select(-Country) %>%    # If anything goes wrong, blame this line
+  group_by(Event, Gender) %>%
+  mutate(Rank = rank(-Earnings, ties.method = "random"),
+         Earnings = scales::dollar(Earnings)) %>%
+  filter(Rank <= 5) %>%
+  nest(Name, flag_emoji, Earnings) %>%
+  pivot_wider(names_from = Rank, values_from = data, names_prefix = "Rank_") %>%
+  mutate(across(.cols = starts_with("Rank"), .fns = rank_to_html)) %>%
+  ungroup() %>%
+  gt()
 
-
-```
-
-```{r}
 
 emoji_to_html <- function(cell_info) {
   
@@ -112,22 +95,16 @@ country_earnings <- base_frame %>%
   mutate(country_top = map(country_top, gt::html)) %>%
   gt()
 
-```
 
-
-```{r}
 
 athlete_info_data <- athlete_info$`_data`
 country_earnings_data <- country_earnings$`_data`
 
 base_table$`_data` <- base_table$`_data` %>%
- select(Event, Gender, earnings_spread, spacer) %>%
- left_join(., athlete_info_data, by = c("Event", "Gender")) %>%
- left_join(., country_earnings_data, by = c("Event", "Gender"))
+  select(Event, Gender, earnings_spread, spacer) %>%
+  left_join(., athlete_info_data, by = c("Event", "Gender")) %>%
+  left_join(., country_earnings_data, by = c("Event", "Gender"))
 
-```
-
-```{r}
 
 completed_table <- base_table %>%
   cols_move(., columns = Rank_1, after = country_top) %>%
@@ -148,9 +125,3 @@ completed_table <- base_table %>%
   opt_align_table_header(., align = "left")
 
 completed_table
-
-```
-
-
-
-```
